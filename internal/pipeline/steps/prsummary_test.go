@@ -223,17 +223,21 @@ func TestBuildTestingSummaryForPR_OmitsRecordedTestDetails(t *testing.T) {
 	}
 
 	md := BuildTestingSummaryForPR(steps, rounds, "git@github.com:example/widgets.git", "abc123")
+	t.Logf("rendered PR testing markdown:\n%s", md)
 
-	if !strings.Contains(md, "- Summary: Validated the CLI doctor path and config loading; both passed.") {
-		t.Fatalf("expected natural-language testing summary, got:\n%s", md)
+	if !strings.Contains(md, "## Testing\n\nValidated the CLI doctor path and config loading; both passed.") {
+		t.Fatalf("expected natural-language testing summary as a paragraph, got:\n%s", md)
+	}
+	if strings.Contains(md, "- Summary:") {
+		t.Fatalf("did not expect PR testing summary to render as a Summary bullet, got:\n%s", md)
 	}
 	for _, command := range []string{"go test ./internal/cli", "make e2e"} {
 		if strings.Contains(md, command) {
 			t.Fatalf("did not expect raw recorded command %q in PR testing summary, got:\n%s", command, md)
 		}
 	}
-	if !strings.Contains(md, "- Outcome: ✅ passed across 1 run (300ms)") {
-		t.Fatalf("expected outcome line with run count and duration, got:\n%s", md)
+	if strings.Contains(md, "Outcome:") {
+		t.Fatalf("did not expect outcome row in PR testing summary, got:\n%s", md)
 	}
 }
 
@@ -248,15 +252,61 @@ func TestBuildTestingSummaryForPR_SummarizesBaselineOnlyTests(t *testing.T) {
 	}
 
 	md := BuildTestingSummaryForPR(steps, rounds, "git@github.com:example/widgets.git", "abc123")
+	t.Logf("rendered PR testing markdown:\n%s", md)
 
-	if !strings.Contains(md, "- Summary: Completed 1 recorded test check.") {
-		t.Fatalf("expected compact baseline test summary, got:\n%s", md)
+	if !strings.Contains(md, "## Testing\n\nCompleted 1 recorded test check.") {
+		t.Fatalf("expected compact baseline test summary as a paragraph, got:\n%s", md)
+	}
+	if strings.Contains(md, "- Summary:") {
+		t.Fatalf("did not expect compact baseline summary to render as a Summary bullet, got:\n%s", md)
 	}
 	if strings.Contains(md, "go test ./...") {
 		t.Fatalf("did not expect raw recorded command in PR testing summary, got:\n%s", md)
 	}
-	if !strings.Contains(md, "- Outcome: ✅ passed across 1 run (300ms)") {
-		t.Fatalf("expected outcome line with run count and duration, got:\n%s", md)
+	if strings.Contains(md, "Outcome:") {
+		t.Fatalf("did not expect outcome row in PR testing summary, got:\n%s", md)
+	}
+}
+
+func TestBuildTestingSummaryForPR_KeepsFailedOutcomeForCompactTestedSummary(t *testing.T) {
+	t.Parallel()
+	findings := "{\"findings\":[],\"summary\":\"\",\"tested\":[\"`go test ./...`\"]}"
+	steps := []*db.StepResult{
+		{ID: "s1", StepName: types.StepTest, Status: types.StepStatusFailed, FindingsJSON: &findings},
+	}
+	rounds := map[string][]*db.StepRound{
+		"s1": {{Round: 1, Trigger: "initial", FindingsJSON: &findings, DurationMS: 300}},
+	}
+
+	md := BuildTestingSummaryForPR(steps, rounds, "git@github.com:example/widgets.git", "abc123")
+	t.Logf("rendered PR testing markdown:\n%s", md)
+
+	if !strings.Contains(md, "Completed 1 recorded test check.") {
+		t.Fatalf("expected compact baseline test summary as a paragraph, got:\n%s", md)
+	}
+	if !strings.Contains(md, "Outcome: ❌ failed across 1 run (300ms)") {
+		t.Fatalf("expected failed outcome to remain visible, got:\n%s", md)
+	}
+}
+
+func TestBuildTestingSummaryForPR_KeepsOutcomeForArtifactOnlyEvidence(t *testing.T) {
+	t.Parallel()
+	findings := `{"findings":[],"summary":"","artifacts":[{"kind":"log","label":"Rendered PR markdown","content":"## Testing\n\n- Evidence captured"}]}`
+	steps := []*db.StepResult{
+		{ID: "s1", StepName: types.StepTest, Status: types.StepStatusCompleted, FindingsJSON: &findings},
+	}
+	rounds := map[string][]*db.StepRound{
+		"s1": {{Round: 1, Trigger: "initial", FindingsJSON: &findings, DurationMS: 300}},
+	}
+
+	md := BuildTestingSummaryForPR(steps, rounds, "git@github.com:example/widgets.git", "abc123")
+	t.Logf("rendered PR testing markdown:\n%s", md)
+
+	if !strings.Contains(md, "Outcome:") {
+		t.Fatalf("expected artifact-only evidence to keep outcome fallback, got:\n%s", md)
+	}
+	if !strings.Contains(md, "Evidence: Rendered PR markdown") {
+		t.Fatalf("expected artifact evidence to render, got:\n%s", md)
 	}
 }
 
