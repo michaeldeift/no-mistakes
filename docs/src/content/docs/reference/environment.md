@@ -79,6 +79,28 @@ Data directory used to discover OpenCode transcripts for intent extraction.
 When set, no-mistakes looks for OpenCode's intent transcript database at `$XDG_DATA_HOME/opencode/opencode.db`.
 When unset, it falls back to `~/.local/share/opencode/opencode.db`.
 
+## `GLAB_CONFIG_DIR`
+
+Directory holding glab's `config.yml`, consulted when detecting self-hosted GitLab.
+
+| | |
+|---|---|
+| Type | `string` |
+| Default | (none) |
+
+When the upstream hostname carries no `gitlab` marker, no-mistakes reads glab's configured hosts from `$GLAB_CONFIG_DIR/config.yml` to decide whether the host is a GitLab instance. It takes precedence over `XDG_CONFIG_HOME`. See [Provider Integration](/no-mistakes/guides/provider-integration/#self-hosted-githubgitlab).
+
+## `XDG_CONFIG_HOME`
+
+Config directory used to locate glab's `config.yml` for self-hosted GitLab detection.
+
+| | |
+|---|---|
+| Type | `string` |
+| Default | `~/.config` |
+
+When `GLAB_CONFIG_DIR` is unset, no-mistakes looks for glab's configured hosts at `$XDG_CONFIG_HOME/glab-cli/config.yml`, falling back to `~/.config/glab-cli/config.yml` when `XDG_CONFIG_HOME` is unset.
+
 ## `NO_MISTAKES_UMAMI_HOST`
 
 Override the telemetry collection host.
