@@ -35,6 +35,8 @@ type CIStep struct {
 	lastFixedChecks      string               // sorted check names from last fix attempt, to avoid re-fixing
 	lastFixedCompletedAt map[string]time.Time // failing check completion times seen before the last fix attempt
 	ciFixAttempts        int                  // number of CI auto-fix attempts made
+	lastProcessedComment time.Time            // watermark: @claude review comments at/before this time have already been turned into a fix attempt
+	commentFixAttempts   int                  // number of review-comment auto-fix attempts made
 	checksGracePeriod    time.Duration        // minimum wait before trusting empty CI checks (0 = default 60s)
 	pollIntervalOverride time.Duration        // if set, overrides computed poll interval (for testing)
 	waitForNextPoll      func(context.Context, time.Duration) error
@@ -323,6 +325,13 @@ func (s *CIStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, err
 			}
 		}
 
+		// Poll for new @claude review-mention responses independent of CI
+		// status, and drive the same agent fix -> commit -> push cycle CI
+		// failures use. This is not a separate step or polling loop - it
+		// shares this loop's iteration and the same force-push-safety-guarded
+		// push path (s.commitAndPush).
+		s.checkReviewComments(sctx, host, pr, ciFixLimit)
+
 		// Sleep for poll interval
 		interval := s.pollIntervalOverride
 		if interval == 0 {
@@ -349,6 +358,52 @@ func (s *CIStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, err
 			return nil, err
 		}
 	}
+}
+
+// checkReviewComments polls for new comments left in response to the
+// @claude review-mention (posted by PRStep on new draft PRs) and, mirroring
+// autoFixCI, runs the agent to address them then pushes through the same
+// force-push-safety-guarded path (s.commitAndPush). It only fires for hosts
+// that implement scm.CommentHost (GitHub) and shares the CI step's own
+// auto-fix limit and attempt counter discipline, tracked independently of
+// CI-failure fixes so the two don't fight over the same budget accounting.
+func (s *CIStep) checkReviewComments(sctx *pipeline.StepContext, host scm.Host, pr *scm.PR, fixLimit int) {
+	ch, ok := host.(scm.CommentHost)
+	if !ok || fixLimit <= 0 {
+		return
+	}
+	comments, err := ch.ListReviewResponseComments(sctx.Ctx, pr)
+	if err != nil {
+		sctx.Log(fmt.Sprintf("warning: could not check review comments: %v", err))
+		return
+	}
+	var fresh []scm.Comment
+	for _, c := range comments {
+		if !c.CreatedAt.After(s.lastProcessedComment) {
+			continue
+		}
+		fresh = append(fresh, c)
+	}
+	if len(fresh) == 0 {
+		return
+	}
+	sort.Slice(fresh, func(i, j int) bool { return fresh[i].CreatedAt.Before(fresh[j].CreatedAt) })
+	newest := fresh[len(fresh)-1].CreatedAt
+
+	if s.commentFixAttempts >= fixLimit {
+		sctx.Log("new review comment(s) detected but max auto-fix attempts reached, waiting for manual intervention...")
+		s.lastProcessedComment = newest
+		return
+	}
+
+	s.commentFixAttempts++
+	sctx.Log(fmt.Sprintf("new review comment(s) detected - auto-fixing (attempt %d/%d)...", s.commentFixAttempts, fixLimit))
+	if err := s.autoFixReviewComments(sctx, fresh); err != nil {
+		sctx.Log(fmt.Sprintf("warning: review comment auto-fix failed: %v", err))
+	}
+	// Advance the watermark regardless of outcome so a comment that produced
+	// no changes (or failed) is never turned into a second fix attempt.
+	s.lastProcessedComment = newest
 }
 
 func logCIMonitorStatus(sctx *pipeline.StepContext, message, previous string) string {

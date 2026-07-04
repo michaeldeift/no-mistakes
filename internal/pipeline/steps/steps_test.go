@@ -133,6 +133,9 @@ func fakeGHHandler(args []string) {
 		fmt.Println("https://github.com/test/repo/pull/99")
 		os.Exit(0)
 	}
+	if len(args) >= 2 && args[0] == "pr" && args[1] == "comment" {
+		os.Exit(0)
+	}
 	os.Exit(1)
 }
 
@@ -268,6 +271,25 @@ func fakeCIGHHandler(args []string) {
 	}
 	if strings.Contains(joined, "run view") {
 		fmt.Println("error log output")
+		os.Exit(0)
+	}
+	if strings.Contains(joined, "api") && strings.Contains(joined, "/issues/") && strings.Contains(joined, "/comments") {
+		issueComments := os.Getenv("FAKE_CLI_ISSUE_COMMENTS")
+		if issueComments == "" {
+			issueComments = "[]"
+		}
+		fmt.Println(issueComments)
+		os.Exit(0)
+	}
+	if strings.Contains(joined, "api") && strings.Contains(joined, "/pulls/") && strings.Contains(joined, "/comments") {
+		prComments := os.Getenv("FAKE_CLI_PR_COMMENTS")
+		if prComments == "" {
+			prComments = "[]"
+		}
+		fmt.Println(prComments)
+		os.Exit(0)
+	}
+	if len(args) >= 2 && args[0] == "pr" && args[1] == "comment" {
 		os.Exit(0)
 	}
 	os.Exit(1)

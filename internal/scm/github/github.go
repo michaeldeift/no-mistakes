@@ -425,6 +425,95 @@ func isFailedJob(job githubRunJob) bool {
 	}
 }
 
+// claudeReviewBotLoginSubstring matches the login of the account mono's
+// claude.yml GitHub Action posts responses from (e.g. "claude[bot]"),
+// case-insensitively.
+const claudeReviewBotLoginSubstring = "claude"
+
+func (h *Host) PostComment(ctx context.Context, pr *scm.PR, body string) error {
+	args := append([]string{"pr", "comment", pr.Number}, h.repoArgs()...)
+	args = append(args, "--body", body)
+	cmd := h.cmd(ctx, "gh", args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("gh pr comment: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+	return nil
+}
+
+// ListReviewResponseComments returns issue-style and inline review comments
+// on the PR whose author login contains "claude" (case-insensitive) - the
+// account mono's claude.yml GitHub Action posts responses from. It fetches
+// only the default (first) page of each comment kind.
+// ponytail: add --paginate if a PR ever racks up more review comments than
+// gh api's default page size.
+func (h *Host) ListReviewResponseComments(ctx context.Context, pr *scm.PR) ([]scm.Comment, error) {
+	repo := h.bareRepoSlug()
+	if repo == "" {
+		return nil, errors.New("gh api: unknown repository slug")
+	}
+	issueComments, err := h.fetchGitHubComments(ctx, fmt.Sprintf("repos/%s/issues/%s/comments", repo, pr.Number), "issue")
+	if err != nil {
+		return nil, err
+	}
+	reviewComments, err := h.fetchGitHubComments(ctx, fmt.Sprintf("repos/%s/pulls/%s/comments", repo, pr.Number), "review")
+	if err != nil {
+		return nil, err
+	}
+	return append(issueComments, reviewComments...), nil
+}
+
+// bareRepoSlug returns "owner/name" for gh api path segments, stripping the
+// GitHub Enterprise Server host prefix that h.repo carries for --repo (gh
+// api addresses the host via --hostname instead, never in the URL path).
+func (h *Host) bareRepoSlug() string {
+	parts := strings.Split(h.repo, "/")
+	if len(parts) < 2 {
+		return h.repo
+	}
+	return strings.Join(parts[len(parts)-2:], "/")
+}
+
+type githubAPIComment struct {
+	ID        int64  `json:"id"`
+	Body      string `json:"body"`
+	CreatedAt string `json:"created_at"`
+	User      struct {
+		Login string `json:"login"`
+	} `json:"user"`
+}
+
+func (h *Host) fetchGitHubComments(ctx context.Context, path, kind string) ([]scm.Comment, error) {
+	args := []string{"api", path}
+	if h.host != "" && !strings.EqualFold(h.host, "github.com") {
+		args = append(args, "--hostname", h.host)
+	}
+	cmd := h.cmd(ctx, "gh", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh api %s: %w", path, err)
+	}
+	var raw []githubAPIComment
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("parse comments from %s: %w", path, err)
+	}
+	comments := make([]scm.Comment, 0, len(raw))
+	for _, c := range raw {
+		if !strings.Contains(strings.ToLower(c.User.Login), claudeReviewBotLoginSubstring) {
+			continue
+		}
+		var createdAt time.Time
+		if parsed, parseErr := time.Parse(time.RFC3339, c.CreatedAt); parseErr == nil {
+			createdAt = parsed
+		}
+		comments = append(comments, scm.Comment{
+			ID:        fmt.Sprintf("%s-%d", kind, c.ID),
+			Body:      c.Body,
+			CreatedAt: createdAt,
+		})
+	}
+	return comments, nil
+}
+
 func normalizeRunName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }

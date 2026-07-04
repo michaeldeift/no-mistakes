@@ -411,6 +411,113 @@ func TestAvailableFallsBackToUnscopedAuthWhenHostUnknown(t *testing.T) {
 	}
 }
 
+func TestPostComment(t *testing.T) {
+	t.Parallel()
+
+	host := New(githubTestCmdFactory(map[string]githubTestResponse{
+		"gh pr comment 42 --repo test/repo --body @claude please review this PR": {},
+	}), nil, "", "test/repo")
+
+	if err := host.PostComment(context.Background(), &scm.PR{Number: "42"}, "@claude please review this PR"); err != nil {
+		t.Fatalf("PostComment() error = %v", err)
+	}
+}
+
+func TestPostCommentReturnsErrorOnFailure(t *testing.T) {
+	t.Parallel()
+
+	host := New(githubTestCmdFactory(map[string]githubTestResponse{
+		"gh pr comment 42 --repo test/repo --body hello": {stderr: "not found", code: 1},
+	}), nil, "", "test/repo")
+
+	if err := host.PostComment(context.Background(), &scm.PR{Number: "42"}, "hello"); err == nil {
+		t.Fatal("PostComment() error = nil, want error")
+	}
+}
+
+func TestListReviewResponseCommentsFiltersToClaudeBotAndMergesBothKinds(t *testing.T) {
+	t.Parallel()
+
+	issueComments := `[
+		{"id":1,"body":"looks good","created_at":"2026-01-01T00:00:00Z","user":{"login":"someone-else"}},
+		{"id":2,"body":"fix the nil check","created_at":"2026-01-01T00:01:00Z","user":{"login":"claude[bot]"}}
+	]`
+	reviewComments := `[
+		{"id":3,"body":"add a test here","created_at":"2026-01-01T00:02:00Z","user":{"login":"Claude"}}
+	]`
+
+	host := New(githubTestCmdFactory(map[string]githubTestResponse{
+		"gh api repos/test/repo/issues/42/comments": {stdout: issueComments + "\n"},
+		"gh api repos/test/repo/pulls/42/comments":  {stdout: reviewComments + "\n"},
+	}), nil, "", "test/repo")
+
+	comments, err := host.ListReviewResponseComments(context.Background(), &scm.PR{Number: "42"})
+	if err != nil {
+		t.Fatalf("ListReviewResponseComments() error = %v", err)
+	}
+	if len(comments) != 2 {
+		t.Fatalf("comments = %+v, want 2 claude-authored comments", comments)
+	}
+	bodies := map[string]bool{}
+	for _, c := range comments {
+		bodies[c.Body] = true
+		if c.ID == "" {
+			t.Fatalf("comment %+v has empty ID", c)
+		}
+		if c.CreatedAt.IsZero() {
+			t.Fatalf("comment %+v has zero CreatedAt", c)
+		}
+	}
+	if !bodies["fix the nil check"] || !bodies["add a test here"] {
+		t.Fatalf("comments = %+v, missing expected claude-authored bodies", comments)
+	}
+	if bodies["looks good"] {
+		t.Fatalf("comments = %+v, non-claude comment should have been filtered out", comments)
+	}
+}
+
+func TestListReviewResponseCommentsGivesDistinctIDsForSameNumberedIssueAndReviewComments(t *testing.T) {
+	t.Parallel()
+
+	host := New(githubTestCmdFactory(map[string]githubTestResponse{
+		"gh api repos/test/repo/issues/42/comments": {stdout: `[{"id":7,"body":"issue comment","created_at":"2026-01-01T00:00:00Z","user":{"login":"claude[bot]"}}]` + "\n"},
+		"gh api repos/test/repo/pulls/42/comments":  {stdout: `[{"id":7,"body":"review comment","created_at":"2026-01-01T00:00:00Z","user":{"login":"claude[bot]"}}]` + "\n"},
+	}), nil, "", "test/repo")
+
+	comments, err := host.ListReviewResponseComments(context.Background(), &scm.PR{Number: "42"})
+	if err != nil {
+		t.Fatalf("ListReviewResponseComments() error = %v", err)
+	}
+	if len(comments) != 2 || comments[0].ID == comments[1].ID {
+		t.Fatalf("comments = %+v, want two comments with distinct IDs despite identical numeric IDs from GitHub", comments)
+	}
+}
+
+func TestListReviewResponseCommentsScopesToGHEHostname(t *testing.T) {
+	t.Parallel()
+
+	host := New(githubTestCmdFactory(map[string]githubTestResponse{
+		"gh api repos/org/repo/issues/1/comments --hostname ghe.example.com": {stdout: "[]\n"},
+		"gh api repos/org/repo/pulls/1/comments --hostname ghe.example.com":  {stdout: "[]\n"},
+	}), nil, "ghe.example.com", "ghe.example.com/org/repo")
+
+	if _, err := host.ListReviewResponseComments(context.Background(), &scm.PR{Number: "1"}); err != nil {
+		t.Fatalf("ListReviewResponseComments() error = %v", err)
+	}
+}
+
+func TestListReviewResponseCommentsReturnsErrorOnAPIFailure(t *testing.T) {
+	t.Parallel()
+
+	host := New(githubTestCmdFactory(map[string]githubTestResponse{
+		"gh api repos/test/repo/issues/42/comments": {stderr: "boom", code: 1},
+	}), nil, "", "test/repo")
+
+	if _, err := host.ListReviewResponseComments(context.Background(), &scm.PR{Number: "42"}); err == nil {
+		t.Fatal("ListReviewResponseComments() error = nil, want error")
+	}
+}
+
 type githubTestResponse struct {
 	stdout    string
 	stderr    string

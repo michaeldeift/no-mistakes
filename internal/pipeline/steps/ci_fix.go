@@ -108,6 +108,59 @@ CI logs:
 	return s.commitAndPush(sctx)
 }
 
+// autoFixReviewComments runs the agent to address feedback left in response
+// to the @claude review mention, then commits and pushes through the same
+// force-push-safety-guarded path autoFixCI uses.
+func (s *CIStep) autoFixReviewComments(sctx *pipeline.StepContext, comments []scm.Comment) error {
+	ctx := sctx.Ctx
+
+	var feedback strings.Builder
+	for _, c := range comments {
+		feedback.WriteString(strings.TrimSpace(c.Body))
+		feedback.WriteString("\n\n")
+	}
+
+	prompt := fmt.Sprintf(
+		`The following review feedback was left on this PR in response to an automated review request. Diagnose and address the feedback with code changes.
+
+Context:
+- branch: %s
+- target commit: %s
+
+Rules:
+- You MUST produce file changes that address the feedback. Do not conclude that nothing needs to change.
+- Make the smallest correct fix for each point raised.
+- Do not refactor beyond what is needed to address the feedback.
+- Verify the fix by running the most relevant commands locally before finishing.
+
+Review feedback:
+%s`,
+		sctx.Run.Branch,
+		sctx.Run.HeadSHA,
+		strings.TrimSpace(feedback.String()),
+	)
+	prompt += userIntentPromptSection(sctx)
+
+	sctx.Log("running agent to address review feedback...")
+	_, err := sctx.Agent.Run(ctx, agent.RunOpts{
+		Prompt:  prompt,
+		CWD:     sctx.WorkDir,
+		OnChunk: sctx.LogChunk,
+	})
+	if err != nil {
+		return fmt.Errorf("agent review-comment fix: %w", err)
+	}
+
+	pushed, err := s.commitAndPush(sctx)
+	if err != nil {
+		return err
+	}
+	if !pushed {
+		sctx.Log("review comment fix produced no changes")
+	}
+	return nil
+}
+
 // commitAndPush commits any uncommitted changes and force-pushes to the
 // configured push remote.
 // Returns (true, nil) when changes were pushed, (false, nil) when there was

@@ -43,6 +43,12 @@ const (
 	pullRequestBodySafetyBufferBytes = 2048
 	maxPullRequestBodyBytes          = githubPullRequestBodyHardLimitChars - pullRequestBodySafetyBufferBytes
 	minLatestPipelineUpdateBytes     = 256
+
+	// claudeReviewMentionComment triggers mono's claude.yml GitHub Action,
+	// which responds to @claude mentions in PR comments. The CI step's
+	// monitoring loop then watches for that response and drives the same
+	// agent fix -> commit -> push cycle it already uses for CI failures.
+	claudeReviewMentionComment = "@claude please review this PR"
 )
 
 type pipelineUpdateGroup struct {
@@ -116,7 +122,25 @@ func (s *PRStep) Execute(sctx *pipeline.StepContext) (*pipeline.StepOutcome, err
 	if err := sctx.DB.UpdateRunPRURL(sctx.Run.ID, created.URL); err != nil {
 		slog.Warn("failed to persist PR URL", "run", sctx.Run.ID, "url", created.URL, "err", err)
 	}
+	if content.Draft {
+		postClaudeReviewMention(sctx, host, created)
+	}
 	return &pipeline.StepOutcome{PRURL: created.URL}, nil
+}
+
+// postClaudeReviewMention posts the review-mention comment on a newly
+// created PR, create-only like pr.draft itself - never on UpdatePR, since a
+// re-run against an already-open PR should not re-trigger a fresh review.
+// It is a best-effort nicety: only GitHub hosts implement CommentHost, and a
+// failure to post is logged, not fatal to PR creation.
+func postClaudeReviewMention(sctx *pipeline.StepContext, host scm.Host, pr *scm.PR) {
+	ch, ok := host.(scm.CommentHost)
+	if !ok {
+		return
+	}
+	if err := ch.PostComment(sctx.Ctx, pr, claudeReviewMentionComment); err != nil {
+		slog.Warn("failed to post @claude review mention comment", "run", sctx.Run.ID, "err", err)
+	}
 }
 
 func describePR(pr *scm.PR) string {

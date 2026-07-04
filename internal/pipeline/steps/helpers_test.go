@@ -424,6 +424,26 @@ func fakeCIGH(t *testing.T, state, checksJSON string) []string {
 	})
 }
 
+// fakeCIGHWithReviewComments extends fakeCIGH to also serve
+// gh api .../issues/<n>/comments and gh api .../pulls/<n>/comments (the
+// @claude review-mention response endpoints), and logs every command to
+// logFile so tests can assert on what was invoked.
+func fakeCIGHWithReviewComments(t *testing.T, state, checksJSON, issueCommentsJSON, reviewCommentsJSON string) (env []string, logFile string) {
+	t.Helper()
+	binDir := fakeCLIBinDir(t)
+	linkTestBinary(t, binDir, "gh")
+	logFile = filepath.Join(t.TempDir(), "gh.log")
+	env = fakeCLIEnv(binDir, map[string]string{
+		"FAKE_CLI_MODE":           "ci-gh",
+		"FAKE_CLI_STATE":          state,
+		"FAKE_CLI_CHECKS":         checksJSON,
+		"FAKE_CLI_ISSUE_COMMENTS": issueCommentsJSON,
+		"FAKE_CLI_PR_COMMENTS":    reviewCommentsJSON,
+		"FAKE_CLI_LOG":            logFile,
+	})
+	return env, logFile
+}
+
 func fakeCIGHMergeable(t *testing.T, state, checksJSON, mergeable string) []string {
 	t.Helper()
 	binDir := fakeCLIBinDir(t)

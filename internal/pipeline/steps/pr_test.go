@@ -348,6 +348,82 @@ func TestPRStep_OmitsDraftFlagByDefault(t *testing.T) {
 	}
 }
 
+func TestPRStep_PostsClaudeReviewMentionOnNewDraftPR(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+
+	env, logFile := fakeGH(t, "")
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Env = env
+	sctx.Config.PR.Draft = true
+
+	step := &PRStep{}
+	if _, err := step.Execute(sctx); err != nil {
+		t.Fatal(err)
+	}
+
+	logData, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ghLog := string(logData)
+	if !strings.Contains(ghLog, "pr comment 99") || !strings.Contains(ghLog, "@claude please review this PR") {
+		t.Fatalf("expected @claude review mention comment on new draft PR, got:\n%s", ghLog)
+	}
+}
+
+func TestPRStep_OmitsClaudeReviewMentionWhenNotDraft(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+
+	env, logFile := fakeGH(t, "")
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Env = env
+
+	step := &PRStep{}
+	if _, err := step.Execute(sctx); err != nil {
+		t.Fatal(err)
+	}
+
+	logData, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(logData), "pr comment") {
+		t.Fatalf("expected no @claude review mention comment when pr.draft is false, got:\n%s", logData)
+	}
+}
+
+func TestPRStep_OmitsClaudeReviewMentionOnUpdatePR(t *testing.T) {
+	t.Parallel()
+	dir, baseSHA, headSHA := setupGitRepo(t)
+
+	env, logFile := fakeGH(t, "https://github.com/test/repo/pull/42")
+	ag := &mockAgent{name: "test"}
+	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
+	sctx.Env = env
+	sctx.Config.PR.Draft = true
+
+	step := &PRStep{}
+	if _, err := step.Execute(sctx); err != nil {
+		t.Fatal(err)
+	}
+
+	logData, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ghLog := string(logData)
+	if !strings.Contains(ghLog, "pr edit") {
+		t.Fatalf("expected pr edit for existing PR, got:\n%s", ghLog)
+	}
+	if strings.Contains(ghLog, "pr comment") {
+		t.Fatalf("expected no @claude review mention comment on UpdatePR even with pr.draft true, got:\n%s", ghLog)
+	}
+}
+
 func TestPRStep_GitHubForkCreatesParentPRWithForkHead(t *testing.T) {
 	t.Parallel()
 	dir, baseSHA, headSHA := setupGitRepo(t)
