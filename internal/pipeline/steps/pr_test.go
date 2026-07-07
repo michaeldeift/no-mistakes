@@ -324,7 +324,10 @@ func TestPRStep_PassesDraftConfigToCreatePR(t *testing.T) {
 	}
 }
 
-func TestPRStep_OmitsDraftFlagByDefault(t *testing.T) {
+// TestPRStep_OmitsDraftFlagWhenConfigFalse covers the pr.draft: false
+// opt-out path (config.Merge now defaults PR.Draft to true; a repo overrides
+// it to false in its .no-mistakes.yaml to open PRs ready-for-review).
+func TestPRStep_OmitsDraftFlagWhenConfigFalse(t *testing.T) {
 	t.Parallel()
 	dir, baseSHA, headSHA := setupGitRepo(t)
 
@@ -332,6 +335,7 @@ func TestPRStep_OmitsDraftFlagByDefault(t *testing.T) {
 	ag := &mockAgent{name: "test"}
 	sctx := newTestContextWithDBRecords(t, ag, dir, baseSHA, headSHA, config.Commands{})
 	sctx.Env = env
+	sctx.Config.PR.Draft = false
 
 	step := &PRStep{}
 	if _, err := step.Execute(sctx); err != nil {
@@ -344,7 +348,7 @@ func TestPRStep_OmitsDraftFlagByDefault(t *testing.T) {
 	}
 	ghLog := string(logData)
 	if strings.Contains(ghLog, "--draft") {
-		t.Fatalf("expected no --draft flag by default, got:\n%s", ghLog)
+		t.Fatalf("expected no --draft flag when config.PR.Draft is false, got:\n%s", ghLog)
 	}
 }
 

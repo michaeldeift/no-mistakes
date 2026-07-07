@@ -72,6 +72,7 @@ Safest local verification sequence after non-trivial changes:
 **PR Draft Setting (`pr.draft`)**
 
 - `pr.draft` (repo config, `config.PR.Draft`) is non-code-executing (only affects how a PR opens), so it follows `ignore_patterns`/`auto_fix`/`intent`/`test`: read from the pushed branch, not gated behind `allow_repo_commands`, not restricted to the trusted default-branch SHA.
+- `prDefaults()` in `internal/config/config.go` returns `PR{Draft: true}` - draft-by-default is the compiled-in default with zero config needed. A repo opts out with `pr.draft: false` in its own (tracked, pushed-branch) `.no-mistakes.yaml`; that override still works normally since it is read the same non-executing way described above.
 - `scm.PRContent.Draft` is applied **only on `CreatePR`, never on `UpdatePR`**, across every provider (GitHub, GitLab, Azure DevOps) - even where the provider's CLI supports toggling draft state on an existing PR (`glab mr update --draft`/`--ready`, `az repos pr update --draft`). The PR step's only `UpdatePR` call site re-runs on every pipeline re-run against an already-open PR (e.g. a follow-up push), so forcing draft there would silently re-draft a PR a human already marked ready for review - defeating the "require an explicit human mark-ready step" workflow the setting exists for. Keep this create-only invariant if you touch `internal/pipeline/steps/pr.go` or any `scm` backend's `UpdatePR`.
 - Bitbucket Cloud has no draft-PR concept; `internal/bitbucket/host.go` `CreatePR` intentionally never reads `content.Draft`.
 

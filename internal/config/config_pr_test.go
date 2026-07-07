@@ -8,8 +8,8 @@ import (
 
 func TestPRDefaults(t *testing.T) {
 	got := prDefaults()
-	if got.Draft {
-		t.Error("default Draft should be false (PRs open ready-for-review)")
+	if !got.Draft {
+		t.Error("default Draft should be true (PRs open as drafts by default)")
 	}
 }
 
@@ -23,10 +23,20 @@ func TestPRMerge_RepoEnablesDraft(t *testing.T) {
 	}
 }
 
-func TestPRMerge_UnsetDefaultsFalse(t *testing.T) {
-	cfg := Merge(&GlobalConfig{}, &RepoConfig{})
+func TestPRMerge_RepoOptsOutOfDraft(t *testing.T) {
+	disabled := false
+	repo := &RepoConfig{PR: PRRaw{Draft: &disabled}}
+
+	cfg := Merge(&GlobalConfig{}, repo)
 	if cfg.PR.Draft {
-		t.Error("PR.Draft should default to false when unset")
+		t.Error("repo pr.draft: false should override the draft-by-default default")
+	}
+}
+
+func TestPRMerge_UnsetDefaultsToDraftTrue(t *testing.T) {
+	cfg := Merge(&GlobalConfig{}, &RepoConfig{})
+	if !cfg.PR.Draft {
+		t.Error("PR.Draft should default to true when unset")
 	}
 }
 

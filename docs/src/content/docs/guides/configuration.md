@@ -161,9 +161,9 @@ test:
     store_in_repo: true
     dir: .no-mistakes/evidence
 
-# Open PRs/MRs as drafts instead of ready-for-review.
+# PRs/MRs open as drafts by default; opt this repo out of that.
 pr:
-  draft: true
+  draft: false
 ```
 
 See [Repo Config Reference](/no-mistakes/reference/repo-config/) for the full field listing.

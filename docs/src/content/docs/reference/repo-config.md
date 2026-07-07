@@ -45,7 +45,7 @@ test:
     dir: .no-mistakes/evidence
 
 pr:
-  draft: true
+  draft: false
 ```
 
 ## Fields
@@ -203,7 +203,9 @@ Open pull/merge requests as drafts instead of ready-for-review.
 | | |
 |---|---|
 | Type | `bool` |
-| Default | `false` |
+| Default | `true` |
+
+Every PR opens as a draft by default, requiring an explicit human "mark ready" step before anyone is notified for review. Set `pr.draft: false` in a repo's `.no-mistakes.yaml` to opt that repo out and open PRs ready-for-review instead.
 
 Applied only when the PR/MR is first created. It is not re-applied on later updates (e.g. a follow-up push to an already-open PR), so marking a PR ready for review in the GitHub/GitLab/Azure DevOps UI sticks - a subsequent pipeline run does not silently re-draft it.
 
@@ -214,6 +216,6 @@ Provider support:
 | GitHub | `gh pr create --draft`. |
 | GitLab | `glab mr create --draft`. |
 | Azure DevOps | `az repos pr create --draft true`. |
-| Bitbucket Cloud | Ignored - Bitbucket Cloud has no draft-PR concept. |
+| Bitbucket Cloud | Ignored - Bitbucket Cloud has no draft-PR concept; PRs always open ready-for-review there regardless of this setting. |
 
 This is a repo-level-only setting; there is no global default.

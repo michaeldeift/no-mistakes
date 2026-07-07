@@ -909,10 +909,11 @@ func applyTestOverrides(dst *Test, src *TestRaw) {
 	}
 }
 
-// prDefaults returns the default PR-step settings. Draft is off by default:
-// PRs open ready-for-review, matching prior behavior.
+// prDefaults returns the default PR-step settings. Draft is on by default:
+// every PR opens as a draft unless a repo opts out with pr.draft: false in
+// its .no-mistakes.yaml.
 func prDefaults() PR {
-	return PR{Draft: false}
+	return PR{Draft: true}
 }
 
 // applyPROverrides applies non-nil raw values onto resolved defaults.
